@@ -17,15 +17,12 @@
 package com.google.zxing.client.android.camera;
 
 import android.content.Context;
-import android.content.res.Configuration;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.hardware.Camera;
 import android.os.Handler;
 import android.util.Log;
 import android.view.SurfaceHolder;
-import android.view.WindowManager;
-
 import com.google.zxing.PlanarYUVLuminanceSource;
 import com.google.zxing.client.android.camera.open.OpenCamera;
 import com.google.zxing.client.android.camera.open.OpenCameraInterface;
@@ -39,6 +36,7 @@ import java.io.IOException;
  *
  * @author dswitkin@google.com (Daniel Switkin)
  */
+@SuppressWarnings("deprecation") // camera APIs
 public final class CameraManager {
 
   private static final String TAG = CameraManager.class.getSimpleName();
@@ -56,12 +54,9 @@ public final class CameraManager {
   private Rect framingRectInPreview;
   private boolean initialized;
   private boolean previewing;
-  private boolean torchInitiallyOn;
   private int requestedCameraId = OpenCameraInterface.NO_REQUESTED_CAMERA;
   private int requestedFramingRectWidth;
   private int requestedFramingRectHeight;
-  private WindowManager windowManager;
-
   /**
    * Preview frames are delivered here, which we pass on to the registered handler. Make sure to
    * clear the handler so it will only receive one message.
@@ -69,10 +64,9 @@ public final class CameraManager {
   private final PreviewCallback previewCallback;
 
   public CameraManager(Context context) {
-    this.context = context.getApplicationContext();
+    this.context = context;
     this.configManager = new CameraConfigurationManager(context);
     previewCallback = new PreviewCallback(configManager);
-    windowManager = (WindowManager) this.context.getSystemService(Context.WINDOW_SERVICE);
   }
   
   /**
@@ -125,9 +119,6 @@ public final class CameraManager {
     }
     cameraObject.setPreviewDisplay(holder);
 
-    if (torchInitiallyOn) {
-      setTorch(true);
-    }
   }
 
   public synchronized boolean isOpen() {
@@ -175,30 +166,23 @@ public final class CameraManager {
     }
   }
 
-  public synchronized boolean isTorchOn() {
-    return camera != null &&
-        configManager.getTorchState(camera.getCamera());
-  }
-
-    /**
-     * Convenience method for {@link com.google.zxing.client.android.CaptureActivity}
-     *
-     * @param newSetting if {@code true}, light should be turned on if currently off. And vice versa.
-     */
+  /**
+   * Convenience method for {@link com.google.zxing.client.android.CaptureActivity}
+   *
+   * @param newSetting if {@code true}, light should be turned on if currently off. And vice versa.
+   */
   public synchronized void setTorch(boolean newSetting) {
     OpenCamera theCamera = camera;
-    if (theCamera != null) {
-      if (newSetting != configManager.getTorchState(theCamera.getCamera())) {
-        boolean wasAutoFocusManager = autoFocusManager != null;
-        if (wasAutoFocusManager) {
-          autoFocusManager.stop();
-          autoFocusManager = null;
-        }
-        configManager.setTorch(theCamera.getCamera(), newSetting);
-        if (wasAutoFocusManager) {
-          autoFocusManager = new AutoFocusManager(context, theCamera.getCamera());
-          autoFocusManager.start();
-        }
+    if (theCamera != null && newSetting != configManager.getTorchState(theCamera.getCamera())) {
+      boolean wasAutoFocusManager = autoFocusManager != null;
+      if (wasAutoFocusManager) {
+        autoFocusManager.stop();
+        autoFocusManager = null;
+      }
+      configManager.setTorch(theCamera.getCamera(), newSetting);
+      if (wasAutoFocusManager) {
+        autoFocusManager = new AutoFocusManager(context, theCamera.getCamera());
+        autoFocusManager.start();
       }
     }
   }
@@ -278,23 +262,10 @@ public final class CameraManager {
         // Called early, before init even finished
         return null;
       }
-//      rect.left = rect.left * cameraResolution.x / screenResolution.x;
-//      rect.right = rect.right * cameraResolution.x / screenResolution.x;
-//      rect.top = rect.top * cameraResolution.y / screenResolution.y;
-//      rect.bottom = rect.bottom * cameraResolution.y / screenResolution.y;
-
-      int rotation = context.getApplicationContext().getResources().getConfiguration().orientation;
-      if (rotation == Configuration.ORIENTATION_PORTRAIT) {
-        rect.left = rect.left * cameraResolution.y / screenResolution.x;
-        rect.right = rect.right * cameraResolution.y / screenResolution.x;
-        rect.top = rect.top * cameraResolution.x / screenResolution.y;
-        rect.bottom = rect.bottom * cameraResolution.x / screenResolution.y;
-      } else {
-        rect.left = rect.left * cameraResolution.x / screenResolution.x;
-        rect.right = rect.right * cameraResolution.x / screenResolution.x;
-        rect.top = rect.top * cameraResolution.y / screenResolution.y;
-        rect.bottom = rect.bottom * cameraResolution.y / screenResolution.y;
-      }
+      rect.left = rect.left * cameraResolution.x / screenResolution.x;
+      rect.right = rect.right * cameraResolution.x / screenResolution.x;
+      rect.top = rect.top * cameraResolution.y / screenResolution.y;
+      rect.bottom = rect.bottom * cameraResolution.y / screenResolution.y;
       framingRectInPreview = rect;
     }
     return framingRectInPreview;
@@ -311,10 +282,6 @@ public final class CameraManager {
     requestedCameraId = cameraId;
   }
   
-  public synchronized void setTorchInitiallyOn(boolean on) {
-    torchInitiallyOn = on;
-  }
-
   /**
    * Allows third party apps to specify the scanning rectangle dimensions, rather than determine
    * them automatically based on screen resolution.
@@ -324,7 +291,6 @@ public final class CameraManager {
    */
   public synchronized void setManualFramingRect(int width, int height) {
     if (initialized) {
-      /*
       Point screenResolution = configManager.getScreenResolution();
       if (width > screenResolution.x) {
         width = screenResolution.x;
@@ -335,9 +301,6 @@ public final class CameraManager {
       int leftOffset = (screenResolution.x - width) / 2;
       int topOffset = (screenResolution.y - height) / 2;
       framingRect = new Rect(leftOffset, topOffset, leftOffset + width, topOffset + height);
-      */
-      framingRect = getFramingRect();
-
       Log.d(TAG, "Calculated manual framing rect: " + framingRect);
       framingRectInPreview = null;
     } else {
@@ -356,28 +319,13 @@ public final class CameraManager {
    * @return A PlanarYUVLuminanceSource instance.
    */
   public PlanarYUVLuminanceSource buildLuminanceSource(byte[] data, int width, int height) {
-    byte[] rotatedData = new byte[data.length];
-    int rotation = context.getApplicationContext().getResources().getConfiguration().orientation;
-    if (rotation == Configuration.ORIENTATION_PORTRAIT) {
-      for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-          rotatedData[x * height + height - y - 1] = data[x + y * width];
-        }
-      }
-      int tmp = width;
-      //noinspection SuspiciousNameCombination
-      width = height;
-      height = tmp;
-    } else {
-      rotatedData = null;
-    }
-
     Rect rect = getFramingRectInPreview();
     if (rect == null) {
       return null;
     }
     // Go ahead and assume it's YUV rather than die.
-    return new PlanarYUVLuminanceSource(rotation == Configuration.ORIENTATION_PORTRAIT ? rotatedData : data, width, height, rect.left, rect.top,
-        rect.width(), rect.height(), false);
+    return new PlanarYUVLuminanceSource(data, width, height, rect.left, rect.top,
+                                        rect.width(), rect.height(), false);
   }
+
 }
